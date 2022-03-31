@@ -274,6 +274,11 @@ class ObjectCache {
 };
 
 namespace detail {
+inline bool begins_with(const std::string& str, const std::string& substr) {
+  auto pos = str.find(substr);
+  if (pos == std::string::npos) return false;
+  return pos == 0 || str[pos - 1] == ':';
+}
 
 // Convenience wrapper for std::vector that provides handy constructors
 template <typename T>
@@ -1280,7 +1285,7 @@ class CUDAKernel {
     this->create_global_variable_map();
   }
 
-  inline CUDAKernel& set(const char* func_name, const char* ptx,
+  inline CUDAKernel& setOnly(const char* func_name, const char* ptx,
                          std::vector<std::string> link_files,
                          std::vector<std::string> link_paths,
                          unsigned int nopts = 0, CUjit_option* opts = 0,
@@ -1293,7 +1298,10 @@ class CUDAKernel {
     _opts.assign(opts, opts + nopts);
     _optvals.assign(optvals, optvals + nopts);
     this->set_linker_log();
-    this->create_module(link_files, link_paths);
+    return *this;
+  }
+  inline CUDAKernel& create() {
+    this->create_module(_link_files, _link_paths);
     this->create_global_variable_map();
     return *this;
   }
@@ -3593,8 +3601,19 @@ inline void KernelInstantiation_impl::build_kernel() {
                              _options, &log, &ptx, &mangled_instantiation,
                              &linker_files, &linker_paths);
 
-  _cuda_kernel->set(mangled_instantiation.c_str(), ptx.c_str(), linker_files,
+  _cuda_kernel->setOnly(mangled_instantiation.c_str(), ptx.c_str(), linker_files,
                     linker_paths);
+  bool is_optix_kernel = detail::begins_with(_kernel._name, "__raygen__") ||
+                         detail::begins_with(_kernel._name, "__intersection__") ||
+                         detail::begins_with(_kernel._name, "__anyhit__") ||
+                         detail::begins_with(_kernel._name, "__closesthit__") ||
+                         detail::begins_with(_kernel._name, "__miss__") ||
+                         detail::begins_with(_kernel._name, "__direct_callable__") ||
+                         detail::begins_with(_kernel._name, "__continuation_callable__") ||
+                         detail::begins_with(_kernel._name, "__exception__");
+
+  if (!is_optix_kernel)
+    _cuda_kernel->create();
 }
 
 Kernel_impl::Kernel_impl(Program_impl const& program, std::string name,
